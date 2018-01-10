@@ -1,53 +1,119 @@
 
 # coding: utf-8
 
-# **Created by Peter Nagy February 2017 [Github][1]**
+# <a id="topo"></a>
+# ___
+# <img src="../_images/logo_mei.jpg" alt="Mestrado em Internet das Coisas @ IPT" width="200"/>
+# <div class="alert alert-block alert-success" align="center">
+# <h1>Análise e Processamento de Grandes Volumes de Dados</h1>
+# <h3>Sentiment analysis - 4ª parte</div>
+# <center><h5>Criado por: Bruno Bernardo / David Carrilho / Rui Rodrigues</h5></center>
+# ___
 # 
-# **Sentiment Analysis:** the process of computationally identifying and categorizing opinions expressed in a piece of text, especially in order to determine whether the writer's attitude towards a particular topic, product, etc. is positive, negative, or neutral.
+# [<img src="../_images/download.jpg" alt="Mestrado em Internet das Coisas @ IPT" width="50"/>](lstm.ipynb)
+# ___
 # 
+# **Crédito para Peter Nagy February 2017** 
+# https://github.com/nagypeterjob
+
+# [Análise sentimental supervisionada (Naive Bayes)](#super)<br>
+# [Preparação](#preparacao)<br>
+# [Importação de módulos](#import)<br>
+# [Dataset](#dataset)<br>
+# [Importação de dados](#import2)<br>
+# [Limpeza dos dados de treino](#limpeza)<br>
+# [Tokenização e sequênciação](#token)<br>
+# [Criação e parametrização da rede](#criacao)<br>
+# [Separação de dados em treino e teste](#split)<br>
+# [Efectivação do treino](#treino)<br>
+# [Testes](#testes)<br>
+# [Avaliação](#avaliacao)<br>
+# [Conclusão](#conclusao)
+# [Referências](#referencias)
+
+# <p>&nbsp;</p>
+# <p>&nbsp;</p>
+# <p>&nbsp;</p>
 # 
-#   [1]: https://github.com/nagypeterjob
-
-# As an improvement to my previous [Kernel][1], here I am trying to achieve better results with a Recurrent Neural Network.
+# <a id="super"></a>
+# # Análise sentimental supervisionada (LSTM)
+# <p>&nbsp;</p>
 # 
-#   [1]: https://www.kaggle.com/ngyptr/d/crowdflower/first-gop-debate-twitter-sentiment/python-nltk-sentiment-analysis
+# Agora que temos informação de como se comporta um dos métodos de classificação, em que reconhecemos pontos fortes e pontos fracos vamos abordar o mesmo <i>dataset</i> usando uma rede neuronal recorrente. As redes [LSTM](https://en.wikipedia.org/wiki/Long_short-term_memory), Long short-term memory são redes que consomem sequências de dados, com memória mas com a capacidade de esquecer. Acreditamos que esta característica poderá superar os pontos fracos do classificado Naive Bayes.
+# 
 
-# In[1]:
+# ------
+
+# <a id="preparacao"></a>
+# ## Preparação
+# 
+# Se correr o notebook no seu próprio server Jupyter deverá instalar dependências.
+# 
+# Na "Anaconda Comand Prompt" (na pasta onde tens os notebooks):
+# 
+#     pip install numpy
+# 
+#     pip install pandas
+# 
+#     pip install nltk
+# 
+#     pip install tensorflow
+#     
+#     
+# <div class="alert alert-block alert-info">Para quem tiver uma gráfica das mais recentes gerações sugere-se a instalação do "tensorflow-gpu"</div>
+# <div class="alert alert-block alert-info">NOTA: Se não tiveres premissões para instalar, executa o Prompt como Administrador. Se estiveres da drive C: e os notebooks estiverem na D:, assim que abres o Prompt deves escrever D: para mudar de drive.</div>
+# 
+# No nosso caso vamos usar um contentor dinâmico que permite a partilha de notebooks com edição, [mybinder.org](https://mybinder.org).
+
+# <a id="import"></a>
+# ### A importação dos módulos necessários
+
+# In[ ]:
 
 
-# This Python 3 environment comes with many helpful analytics libraries installed
-# It is defined by the kaggle/python docker image: https://github.com/kaggle/docker-python
-# For example, here's several helpful packages to load in 
-
-import numpy as np # linear algebra
-import pandas as pd # data processing, CSV file I/O (e.g. pd.read_csv)
-
+# algebra linear
+import numpy as np 
+# processamento de dados e I/O ficheiros 
+import pandas as pd 
+# Biblioteca de vectorização
 from sklearn.feature_extraction.text import CountVectorizer
+# Biblioteca de tokenização
 from keras.preprocessing.text import Tokenizer
 from keras.preprocessing.sequence import pad_sequences
 from keras.models import Sequential
-from keras.layers import Dense, Embedding, LSTM
+from keras.layers import Dense, Embedding, LSTM, SpatialDropout1D
 from sklearn.model_selection import train_test_split
 from keras.utils.np_utils import to_categorical
 import re
 
-# Input data files are available in the "../input/" directory.
-# For example, running this (by clicking run or pressing Shift+Enter) will list the files in the input directory
+
+# <a id="dataset"></a>
+# ### O Dataset
+# 
+# Para um <i>benchmark</i> fazer sentido devemos usar os mesmo dados. Se bem que não controlamos exactamente que parcelas são usadas para treino e teste acreditamos poder aferir se há melhorias entre um método de classificação e o outro. 
+# 
+
+# <a id="import2"></a>
+# ### Importação dos dados
+# 
+# Os nossos <i>dataset</i> são CSVs que contém diversa informação, como o nosso objectivo é fazer análise sentimental precisamos apenas das colunas com o texto do tweet e a classificação atribuida por utilizadores. 
+
+# In[ ]:
 
 
-# Only keeping the necessary columns.
-
-# In[1]:
-
-
-data = pd.read_csv('../datasets/GOP_REL_ONLY.csv', encoding = "ISO-8859-1")
+#data = pd.read_csv('../_datasets/GOP_REL_ONLY.csv', encoding = "ISO-8859-1")
+data = pd.read_csv('../_datasets/1377191648_sentiment_nuclear_power.csv', encoding = "ISO-8859-1")
 # Keeping only the neccessary columns
 data = data[['text','sentiment']]
 
 
-# Next, I am dropping the 'Neutral' sentiments as my goal was to only differentiate positive and negative tweets. After that, I am filtering the tweets so only valid texts and words remain.  Then, I define the number of max features as 2000 and use Tokenizer to vectorize and convert text into Sequences so the Network can deal with it as input.
+# <a id="limpeza"></a>
+# ### Limpeza dos dados
+# 
+# Seguidamente vamos padronizar os dados, remover alguma informação desnecessária para garantir que ficamos apenas com palavras e, como fizémos com o classificador anterior, vamos excluir os <i>tweets</i> neutros pois pretendemos obter diferenciação.
+# 
 
-# In[3]:
+# In[ ]:
 
 
 data = data[data.sentiment != "Neutral"]
@@ -59,33 +125,59 @@ print(data[ data['sentiment'] == 'Negative'].size)
 
 for idx,row in data.iterrows():
     row[0] = row[0].replace('rt',' ')
-    
-max_fatures = 2000
-tokenizer = Tokenizer(nb_words=max_fatures, split=' ')
+
+
+# <a id="token"></a>
+# ### Tokenização e sequênciação
+# 
+# Then, I define the number of max features as 2000 and use Tokenizer to vectorize and convert text into Sequences so the Network can deal with it as input.
+
+# In[ ]:
+
+
+max_features = 2000
+tokenizer = Tokenizer(num_words=max_features, split=' ')
 tokenizer.fit_on_texts(data['text'].values)
 X = tokenizer.texts_to_sequences(data['text'].values)
 X = pad_sequences(X)
 
 
-# Next, I compose the LSTM Network. Note that **embed_dim**, **lstm_out**, **batch_size**, **droupout_x** variables are hyperparameters, their values are somehow intuitive, can be and must be played with in order to achieve good results. Please also note that I am using softmax as activation function. The reason is that our Network is using categorical crossentropy, and softmax is just the right activation method for that.
+# <a id="criacao"></a>
+# ### Criação e parametrização da rede
+# 
+# Agora vamos criar a rede the LSTM. 
+# 
+# A configuração de parâmetros como **embed_dim**, **lstm_out**, **batch_size**, **droupout** e **rate** requerem experimentação até encontrar os melhores resultados. 
+# 
+# Vamos usar a função "[softmax](https://en.wikipedia.org/wiki/Softmax_function)" para activação do modelo pois num rede de [entropia cruzada](https://en.wikipedia.org/wiki/Cross_entropy) essa é a abordagem correcta.
+# 
+# <div class="alert alert-block alert-info">A função **softmax** comprime um vector de qualquer dimensão com quaisquer números reais para o intervalo [0,1]</div>
+# 
+# <div class="alert alert-block alert-info">**Entropia cruzada** entre duas distruições permite estimar o tamanho de informação necessária para identificar a que distribuição pertence um elemento</div>
 
-# In[4]:
+# In[ ]:
 
 
 embed_dim = 128
 lstm_out = 196
 
 model = Sequential()
-model.add(Embedding(max_fatures, embed_dim,input_length = X.shape[1], dropout=0.2))
-model.add(LSTM(lstm_out, dropout_U=0.2, dropout_W=0.2))
+model.add(Embedding(max_fatures, embed_dim,input_length = X.shape[1]))
+model.add(SpatialDropout1D(rate=0.2))
+model.add(LSTM(lstm_out, dropout=0.2, recurrent_dropout=0.2))
 model.add(Dense(2,activation='softmax'))
 model.compile(loss = 'categorical_crossentropy', optimizer='adam',metrics = ['accuracy'])
 print(model.summary())
 
 
-# Hereby I declare the train and test dataset.
+# <a id="split"></a>
+# ### Separação de dados em treino e teste
+# 
+# Poderemos "brincar" com a proporção para perceber como influencia os resultados.
+# 
+# **random_state** define a aleatoridade com que a rede se lembra e esquece.
 
-# In[5]:
+# In[ ]:
 
 
 Y = pd.get_dummies(data['sentiment']).values
@@ -94,18 +186,24 @@ print(X_train.shape,Y_train.shape)
 print(X_test.shape,Y_test.shape)
 
 
-# Here we train the Network. We should run much more than 7 epoch, but I would have to wait forever for kaggle, so it is 7 for now.
+# <a id="treino"></a>
+# ### Efectivação do treino
+# 
+# Agora resta-nos efectuar o treino. Idealmente deveríamos de usar um elevado número de <i>epochs</i> mas em nome da fluidez da explicação vamos restringir-nos a 9.
 
-# In[6]:
+# In[ ]:
 
 
 batch_size = 32
-model.fit(X_train, Y_train, nb_epoch = 7, batch_size=batch_size, verbose = 2)
+model.fit(X_train, Y_train, epochs = 9, batch_size=batch_size, verbose = 2)
 
 
-# Extracting a validation set, and measuring score and accuracy.
+# <a id="teste"></a>
+# ## Agora um teste
+# 
+# Vamos pegar em alguns dados, testá-los e medir verificar um par de indicadores de performance:
 
-# In[7]:
+# In[ ]:
 
 
 validation_size = 1500
@@ -115,13 +213,18 @@ Y_validate = Y_test[-validation_size:]
 X_test = X_test[:-validation_size]
 Y_test = Y_test[:-validation_size]
 score,acc = model.evaluate(X_test, Y_test, verbose = 2, batch_size = batch_size)
-print("score: %.2f" % (score))
-print("acc: %.2f" % (acc))
+
+print("Indicadores de performance:")
+print("score: %.2f%%" % (score*100))
+print("acc: %.2f%%" % (acc*100))
 
 
-# Finally measuring the number of correct guesses.  It is clear that finding negative tweets goes very well for the Network but deciding whether is positive is not really. My educated guess here is that the positive training set is dramatically smaller than the negative, hence the "bad" results for positive tweets.
+# <a id="avaliacao"></a>
+# ### Avaliação de resultados
+# 
+# Vamos medir o número de acertos e reflectir sobre eles e posteriormente compará-los com o outro classificador.
 
-# In[8]:
+# In[ ]:
 
 
 pos_cnt, neg_cnt, pos_correct, neg_correct = 0, 0, 0, 0
@@ -140,8 +243,27 @@ for x in range(len(X_validate)):
     else:
         pos_cnt += 1
 
+print('[Negative]: %0.2f%%'  % (neg_correct/neg_cnt*100))       
+print('[Positive]: %0.2f%%'  % (pos_correct/pos_cnt*100))
 
 
-print("pos_acc", pos_correct/pos_cnt*100, "%")
-print("neg_acc", neg_correct/neg_cnt*100, "%")
+# <a id="conclusao"></a>
+# ## Conclusão
+# 
+# Pelos resultados obtidos torna-se claro que ambos os métodos são muito bons a encontraar tweets negativos mas no momento da decisão se são positivos algo falha. Podemos especular que são os próprios <i>datasets</i> que têm muito mais <i>tweets</> negativos que positivos. Para isso temos outro <i>dataset</i>. Havendo tempo podemos efectuar alguma experiências.
+# 
+# E sobre análise de sentimentos? Estes exercícios mais técnicos pretendem demonstrar que os resultados de uma análise não dependem exclusivamente do peso ou conotação das palavras mas também dos métodos e parametros usados nos classificadores, da precisão da categorização dos dados de treino, da vizinhança das palavras etc. 
+# 
+# Um dos métodos que gostaríamos de ter explorado baseia-se em florestas aleatórias de decisão, que afectam consideravelmente o a conotação de uma palavra com as suas vizinhas (como podémos testar nos 2 primeiros exercícios). No entanto, apesar de termos feito investigação e experiências, esse <i>notebook</i> seria já muito pesado e faria-nos exceder os objectivos da unidade curricular.
 
+# [<div align="right" class="alert alert-block"><img src="../_images/top.png" width="20"></div>](#topo)
+
+# ____
+# <a id="referencias"></a>
+# 
+# # Referências
+# 
+# http://billchambers.me/tutorials/2015/01/14/python-nlp-cheatsheet-nltk-scikit-learn.html<br>
+# https://www.tensorflow.org/api_docs/python/tf/keras/layers/SpatialDropout1D<br>
+# https://en.wikipedia.org/wiki/Cross_entropy<br>
+# https://en.wikipedia.org/wiki/Softmax_function
